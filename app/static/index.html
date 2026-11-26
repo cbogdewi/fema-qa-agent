@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask FEMA · Disaster data Q&amp;A</title>
+<meta name="description" content="Ask natural-language questions about FEMA disaster declarations. Answers are grounded in OpenFEMA data.">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" defer></script>
+<style>
+  :root {
+    --bg: #f4f7fb; --surface: #ffffff; --ink: #0f2742; --ink-2: #4b6077; --ink-3: #7a8ca0;
+    --line: #e3e9f1; --blue: #1f6feb; --blue-2: #d9e8ff; --green: #13896f; --green-2: #d7f2ea;
+    --pink: #d6457a; --pink-2: #fde4ee; --grey: #8696a9; --radius: 16px;
+    --shadow: 0 1px 2px rgba(15,39,66,.06), 0 8px 24px rgba(15,39,66,.06);
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0e1724; --surface:#152233; --ink:#e8eef6; --ink-2:#a9b8c9; --ink-3:#7f91a6; --line:#24364c;
+            --blue:#5b9bff; --blue-2:#1b3354; --green:#3cc4a0; --green-2:#143a33; --pink:#f07aa6; --pink-2:#45213a;
+            --grey:#8fa0b4; --shadow:none; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--font); -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1120px; margin:0 auto; padding:32px 20px 64px; }
+  header { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:24px; }
+  h1 { font-size:clamp(28px,4vw,40px); letter-spacing:-.02em; margin:0; font-weight:700; }
+  h1 span { color:var(--blue); }
+  .sub { color:var(--ink-2); margin:6px 0 0; font-size:15px; }
+  .pill { font-size:12px; color:var(--ink-2); background:var(--surface); border:1px solid var(--line); padding:6px 12px; border-radius:999px; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:20px; }
+  h2 { font-size:15px; margin:0 0 14px; font-weight:600; letter-spacing:-.01em; }
+  .muted { color:var(--ink-3); font-size:13px; }
+
+  /* Ask */
+  .ask form { display:flex; gap:10px; }
+  .ask input { flex:1; font:inherit; font-size:16px; padding:14px 16px; border-radius:12px; border:1px solid var(--line);
+               background:var(--bg); color:var(--ink); outline:none; min-width:0; }
+  .ask input:focus { border-color:var(--blue); box-shadow:0 0 0 3px var(--blue-2); }
+  .btn { font:inherit; font-weight:600; border:0; border-radius:12px; padding:0 20px; background:var(--blue); color:#fff; cursor:pointer; }
+  .btn:disabled { opacity:.55; cursor:default; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .chip { font:inherit; font-size:13px; border:1px solid var(--line); background:var(--bg); color:var(--ink-2);
+          padding:7px 12px; border-radius:999px; cursor:pointer; }
+  .chip:hover { border-color:var(--blue); color:var(--blue); }
+  .answer { margin-top:18px; display:none; }
+  .answer.show { display:block; }
+  .answer-text { font-size:18px; line-height:1.5; margin:0 0 12px; }
+  .answer.refused .answer-text { color:var(--ink-2); }
+  .meta { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+  .tag { font-size:12px; padding:4px 10px; border-radius:999px; background:var(--green-2); color:var(--green); font-weight:600; }
+  .tag.grey { background:var(--bg); color:var(--ink-2); border:1px solid var(--line); font-weight:500; }
+  .tag.pink { background:var(--pink-2); color:var(--pink); }
+  details { border-top:1px solid var(--line); padding-top:10px; margin-top:10px; }
+  summary { cursor:pointer; color:var(--ink-2); font-size:13px; }
+  pre { background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:12px; overflow:auto; font-size:12.5px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--ink-2); font-weight:600; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .table-scroll { max-height:280px; overflow:auto; }
+  .spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--blue-2); border-top-color:var(--blue);
+             border-radius:50%; animation:spin .8s linear infinite; vertical-align:-3px; margin-right:8px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* Grid */
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:18px 0; }
+  .kpi .label { color:var(--ink-2); font-size:13px; }
+  .kpi .value { font-size:30px; font-weight:700; letter-spacing:-.02em; margin-top:4px; font-variant-numeric:tabular-nums; }
+  .kpi .hint { color:var(--ink-3); font-size:12px; margin-top:2px; }
+  .grid { display:grid; grid-template-columns:2fr 1fr; gap:14px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px; }
+  .chart-box { position:relative; height:260px; }
+  .score { display:flex; align-items:baseline; gap:8px; }
+  .score .big { font-size:40px; font-weight:700; letter-spacing:-.02em; }
+  .bar { height:8px; background:var(--bg); border-radius:999px; overflow:hidden; margin:6px 0 12px; border:1px solid var(--line); }
+  .bar > i { display:block; height:100%; background:var(--green); border-radius:999px; }
+  .cat { display:flex; justify-content:space-between; font-size:13px; padding:6px 0; border-bottom:1px solid var(--line); }
+  .cat:last-child { border-bottom:0; }
+  .ok { color:var(--green); font-weight:600; }
+  .warn { color:var(--pink); font-weight:600; }
+  .recent li { list-style:none; padding:9px 0; border-bottom:1px solid var(--line); font-size:13.5px; display:flex; justify-content:space-between; gap:10px; }
+  .recent ul { padding:0; margin:0; }
+  .recent li:last-child { border-bottom:0; }
+  footer { margin-top:28px; color:var(--ink-3); font-size:12.5px; line-height:1.6; }
+  footer a { color:var(--blue); }
+  @media (max-width: 860px) { .kpis { grid-template-columns:repeat(2,1fr); } .grid, .grid2 { grid-template-columns:1fr; } }
+  @media (max-width: 480px) { .ask form { flex-direction:column; } .btn { padding:12px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Ask <span>FEMA</span></h1>
+      <p class="sub">Ask a question about U.S. disaster declarations. Each answer comes from a SQL query run on live OpenFEMA data.</p>
+    </div>
+    <span class="pill" id="asof">Loading data…</span>
+  </header>
+
+  <section class="card ask" aria-labelledby="ask-h">
+    <h2 id="ask-h">Ask a question</h2>
+    <form id="ask-form">
+      <label for="q" class="sr-only" style="position:absolute;left:-9999px">Question</label>
+      <input id="q" name="q" maxlength="500" autocomplete="off"
+             placeholder="e.g. How many hurricane disasters has Florida had since 2010?">
+      <button class="btn" id="ask-btn" type="submit">Ask</button>
+    </form>
+    <div class="chips" id="chips"></div>
+
+    <div class="answer" id="answer" aria-live="polite">
+      <p class="answer-text" id="answer-text"></p>
+      <div class="meta" id="answer-meta"></div>
+      <div class="chart-box" id="answer-chart-box" style="display:none"><canvas id="answer-chart" aria-label="Chart of the query result"></canvas></div>
+      <details id="answer-data"><summary>Show the data behind this answer</summary><div class="table-scroll" id="answer-table"></div></details>
+      <details id="answer-sql"><summary>Show the SQL query</summary><pre id="answer-sql-text"></pre></details>
+    </div>
+  </section>
+
+  <section class="kpis" aria-label="Key figures">
+    <div class="card kpi"><div class="label">Disasters on record</div><div class="value" id="k-total">–</div><div class="hint" id="k-total-hint"></div></div>
+    <div class="card kpi"><div class="label">Declared this year</div><div class="value" id="k-year">–</div><div class="hint">calendar year to date</div></div>
+    <div class="card kpi"><div class="label">States &amp; territories</div><div class="value" id="k-states">–</div><div class="hint">with at least one declaration</div></div>
+    <div class="card kpi"><div class="label">Most common type</div><div class="value" id="k-type" style="font-size:24px">–</div><div class="hint">last 10 years</div></div>
+  </section>
+
+  <section class="grid">
+    <div class="card"><h2>Disasters declared per year since 2000</h2><div class="chart-box"><canvas id="c-year" aria-label="Disasters declared per year"></canvas></div></div>
+    <div class="card" aria-labelledby="eval-h">
+      <h2 id="eval-h">Agent quality (eval suite)</h2>
+      <div id="evals"><p class="muted">No eval run published yet.</p></div>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="card"><h2>By incident type, last 10 years</h2><div class="chart-box"><canvas id="c-type" aria-label="Disasters by incident type"></canvas></div></div>
+    <div class="card"><h2>Top 10 states, last 10 years</h2><div class="chart-box"><canvas id="c-state" aria-label="Disasters by state"></canvas></div></div>
+  </section>
+
+  <section class="card recent" style="margin-top:14px"><h2>Most recent declarations</h2><ul id="recent"></ul></section>
+
+  <footer>
+    Data: <a href="https://www.fema.gov/about/openfema/data-sets" rel="noopener">OpenFEMA</a> Disaster Declarations Summaries and FEMA Web Disaster Summaries.
+    This product uses the FEMA OpenFEMA API but is not endorsed by FEMA. Counts are distinct disasters, not county rows.
+    Answers are AI-generated from query results, so check important figures against the data shown.
+    · <a href="https://github.com/cbogdewi/fema-qa-agent" rel="noopener">Source on GitHub</a>
+  </footer>
+</div>
+
+<script>
+// API base: same origin by default; embedding pages (e.g. the Flask dashboard) set window.ASK_FEMA_API.
+const API = (window.ASK_FEMA_API || "").replace(/\/$/, "");
+const EXAMPLES = [
+  "How many hurricane disasters has Florida had since 2010?",
+  "Which states had the most severe storm disasters in the last 5 years?",
+  "Disasters declared in Virginia per year since 2010",
+  "How much Public Assistance was obligated for Hurricane Ian?",
+  "What incident types are most common in California?",
+];
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = n => typeof n === "number" ? n.toLocaleString("en-US", {maximumFractionDigits: 2}) : (n ?? "—");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const charts = {};
+
+function chartDefaults() {
+  if (!window.Chart) return;
+  Chart.defaults.font.family = css("--font");
+  Chart.defaults.color = css("--ink-2");
+  Chart.defaults.borderColor = css("--line");
+  Chart.defaults.plugins.legend.display = false;   // single-series charts: the title names the series
+  Chart.defaults.plugins.tooltip.backgroundColor = css("--ink");
+  Chart.defaults.plugins.tooltip.padding = 10;
+  Chart.defaults.plugins.tooltip.cornerRadius = 8;
+  Chart.defaults.maintainAspectRatio = false;
+}
+
+function draw(id, type, labels, values, label, color, horizontal = false) {
+  if (!window.Chart) return;
+  charts[id]?.destroy();
+  const line = type === "line";
+  charts[id] = new Chart(document.getElementById(id), {
+    type,
+    data: { labels, datasets: [{
+      label, data: values, borderColor: color, backgroundColor: line ? color + "22" : color,
+      borderWidth: line ? 2 : 0, fill: line, tension: .25, pointRadius: line ? 0 : undefined,
+      pointHoverRadius: 5, borderRadius: 4, borderSkipped: "start", maxBarThickness: 28,
+    }]},
+    options: {
+      indexAxis: horizontal ? "y" : "x",
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: { grid: { display: horizontal }, ticks: { maxRotation: 0, autoSkip: true } },
+        y: { grid: { display: !horizontal }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+async function getJSON(path, opts) {
+  const r = await fetch(API + path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || `Request failed (${r.status})`);
+  return body;
+}
+
+async function loadStats() {
+  try {
+    const s = await getJSON("/api/stats");
+    const k = s.kpis;
+    document.getElementById("k-total").textContent = fmt(k.total_disasters);
+    document.getElementById("k-total-hint").textContent = `since ${String(k.first_declaration).slice(0, 4)}`;
+    document.getElementById("k-year").textContent = fmt(k.disasters_this_year);
+    document.getElementById("k-states").textContent = fmt(k.states_and_territories);
+    document.getElementById("k-type").textContent = k.top_incident_type_10y || "—";
+    const loaded = s.meta?.loaded_at ? new Date(s.meta.loaded_at) : null;
+    document.getElementById("asof").textContent = loaded
+      ? `Data refreshed ${loaded.toLocaleDateString("en-US", {month: "short", day: "numeric", year: "numeric"})}` : "OpenFEMA data";
+    draw("c-year", "line", s.per_year.map(d => d.year), s.per_year.map(d => d.disasters), "Disasters", css("--blue"));
+    draw("c-type", "bar", s.by_incident_type_10y.map(d => d.incident_type), s.by_incident_type_10y.map(d => d.disasters), "Disasters", css("--green"), true);
+    draw("c-state", "bar", s.by_state_10y.map(d => d.state), s.by_state_10y.map(d => d.disasters), "Disasters", css("--blue"));
+    document.getElementById("recent").innerHTML = s.recent.map(d =>
+      `<li><span><strong>${esc(d.id)}</strong> · ${esc(d.title)}</span><span class="muted">${esc(d.incident_type)} · ${esc(d.date)}</span></li>`).join("");
+  } catch (e) {
+    document.getElementById("asof").textContent = "Data unavailable";
+  }
+}
+
+async function loadEvals() {
+  try {
+    const e = await getJSON("/api/evals");
+    if (!e.available) return;
+    const pct = Math.round(e.pass_rate * 100);
+    const good = e.pass_rate >= e.threshold;
+    const cats = Object.entries(e.by_category).map(([k, v]) =>
+      `<div class="cat"><span>${esc(k)}</span><span class="${v.passed === v.total ? "ok" : "warn"}">${v.passed}/${v.total}</span></div>`).join("");
+    document.getElementById("evals").innerHTML = `
+      <div class="score"><span class="big">${pct}%</span><span class="${good ? "ok" : "warn"}">${good ? "✓ passing" : "! below threshold"}</span></div>
+      <div class="bar" role="img" aria-label="${pct} percent of eval cases passed"><i style="width:${pct}%"></i></div>
+      <p class="muted" style="margin:0 0 10px">${e.passed} of ${e.total} golden questions · median ${fmt(e.latency_ms?.median)} ms · ${esc(e.model)}</p>
+      ${cats}
+      <p class="muted" style="margin:10px 0 0">Last run ${new Date(e.run_at).toLocaleString("en-US")}</p>`;
+  } catch (_) { /* keep placeholder */ }
+}
+
+function renderAnswer(res) {
+  const box = document.getElementById("answer");
+  box.className = "answer show" + (res.refused ? " refused" : "");
+  document.getElementById("answer-text").textContent = res.answer;
+  const tags = [];
+  if (res.refused) tags.push(`<span class="tag pink">Out of scope</span>`);
+  else if (!res.error) tags.push(`<span class="tag">✓ Grounded in ${fmt(res.rows.length)} result row${res.rows.length === 1 ? "" : "s"}</span>`);
+  if (res.latency_ms) tags.push(`<span class="tag grey">${fmt(res.latency_ms)} ms</span>`);
+  if (res.model) tags.push(`<span class="tag grey">${esc(res.model)}</span>`);
+  document.getElementById("answer-meta").innerHTML = tags.join("");
+
+  const hasRows = res.columns && res.columns.length && res.rows.length;
+  document.getElementById("answer-data").style.display = hasRows ? "" : "none";
+  document.getElementById("answer-sql").style.display = res.sql ? "" : "none";
+  document.getElementById("answer-sql-text").textContent = res.sql || "";
+  if (hasRows) {
+    const numCol = res.columns.map((_, i) => res.rows.every(r => typeof r[i] === "number"));
+    document.getElementById("answer-table").innerHTML = `<table><thead><tr>${res.columns.map((c, i) =>
+      `<th class="${numCol[i] ? "num" : ""}">${esc(c)}</th>`).join("")}</tr></thead><tbody>${res.rows.map(r =>
+      `<tr>${r.map((v, i) => `<td class="${numCol[i] ? "num" : ""}">${esc(fmt(v))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  }
+  const cbox = document.getElementById("answer-chart-box");
+  if (res.chart) {
+    cbox.style.display = "";
+    draw("answer-chart", res.chart.type, res.chart.labels, res.chart.values, res.chart.label,
+         res.chart.type === "line" ? css("--blue") : css("--green"), res.chart.type === "bar" && res.chart.labels.length > 8);
+  } else cbox.style.display = "none";
+}
+
+async function ask(question) {
+  const btn = document.getElementById("ask-btn");
+  const box = document.getElementById("answer");
+  btn.disabled = true;
+  box.className = "answer show";
+  document.getElementById("answer-text").innerHTML = `<span class="spinner"></span>Querying FEMA data…`;
+  ["answer-meta"].forEach(id => document.getElementById(id).innerHTML = "");
+  ["answer-data", "answer-sql", "answer-chart-box"].forEach(id => document.getElementById(id).style.display = "none");
+  try {
+    renderAnswer(await getJSON("/api/ask", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({question}),
+    }));
+  } catch (e) {
+    document.getElementById("answer-text").textContent = e.message;
+  } finally { btn.disabled = false; }
+}
+
+document.getElementById("chips").innerHTML = EXAMPLES.map(q => `<button class="chip" type="button">${esc(q)}</button>`).join("");
+document.getElementById("chips").addEventListener("click", e => {
+  if (e.target.matches(".chip")) { document.getElementById("q").value = e.target.textContent; ask(e.target.textContent); }
+});
+document.getElementById("ask-form").addEventListener("submit", e => {
+  e.preventDefault();
+  const q = document.getElementById("q").value.trim();
+  if (q.length >= 3) ask(q);
+});
+window.addEventListener("DOMContentLoaded", () => { chartDefaults(); loadStats(); loadEvals(); });
+</script>
+</body>
+</html>

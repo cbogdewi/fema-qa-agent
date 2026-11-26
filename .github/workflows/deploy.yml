@@ -1,0 +1,161 @@
+name: Deploy
+
+# Test -> load fresh OpenFEMA data -> run the eval suite (quality gate) -> build image -> deploy to Lambda.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 9 * * *"   # nightly data refresh (09:17 UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # OIDC: GitHub proves its identity to AWS; no AWS keys are stored
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  FUNCTION_NAME: fema-qa-agent
+  EVAL_MIN_PASS_RATE: "0.8"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: requirements-dev.txt }
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check . && ruff format --check .
+      - run: pytest -q
+
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: requirements-dev.txt }
+      - run: pip install -r requirements-dev.txt
+
+      - name: Load fresh data from OpenFEMA
+        run: python etl/load_openfema.py --out data/fema.duckdb
+
+      - name: Run eval suite (quality gate)
+        env:
+          LLM_PROVIDER: groq
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          if [ -z "$GROQ_API_KEY" ]; then
+            echo "::warning::GROQ_API_KEY secret not set - skipping evals"
+            exit 0
+          fi
+          python -m evals.run_evals --min-pass-rate "$EVAL_MIN_PASS_RATE"
+
+      - name: Publish eval report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: eval-report
+          path: evals/results/latest.json
+          if-no-files-found: ignore
+
+      - name: Eval summary
+        if: always()
+        run: |
+          [ -f evals/results/latest.json ] || exit 0
+          python - >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          import json
+          r = json.load(open("evals/results/latest.json"))
+          print(f"## Eval: {r['pass_rate']:.0%} ({r['passed']}/{r['total']}) - threshold {r['threshold']:.0%}")
+          print(f"Model `{r['model']}` - median latency {r['latency_ms']['median']} ms\n")
+          print("| case | category | result | detail |\n|---|---|---|---|")
+          for c in r["cases"]:
+              print(f"| {c['id']} | {c['category']} | {'PASS' if c['passed'] else 'FAIL'} | {c['detail']} |")
+          EOF
+
+      - name: Check AWS setup
+        id: aws
+        run: |
+          if [ -z "${{ vars.AWS_ROLE_ARN }}" ]; then
+            echo "::warning::Repository variable AWS_ROLE_ARN not set - skipping deploy (see README, step 3)"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        if: steps.aws.outputs.ready == 'true'
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        if: steps.aws.outputs.ready == 'true'
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        if: steps.aws.outputs.ready == 'true'
+        id: image
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/${{ env.FUNCTION_NAME }}:${{ github.sha }}-${{ github.run_attempt }}
+        run: |
+          mkdir -p evals/results
+          # Lambda needs a single-platform Docker v2 manifest, so disable provenance attestations.
+          docker buildx build --platform linux/amd64 --provenance=false --push -t "$IMAGE" .
+          echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update Lambda function
+        if: steps.aws.outputs.ready == 'true'
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          set -euo pipefail
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          ROLE="arn:aws:iam::${ACCOUNT}:role/${FUNCTION_NAME}-lambda"
+          ENV_JSON=$(python -c 'import json,os; print(json.dumps({"Variables": {"LLM_PROVIDER": "groq", "GROQ_API_KEY": os.environ["GROQ_API_KEY"]}}))')
+
+          if aws lambda get-function --function-name "$FUNCTION_NAME" >/dev/null 2>&1; then
+            aws lambda update-function-code --function-name "$FUNCTION_NAME" --image-uri "$IMAGE_URI" >/dev/null
+            aws lambda wait function-updated-v2 --function-name "$FUNCTION_NAME"
+            aws lambda update-function-configuration --function-name "$FUNCTION_NAME" \
+              --environment "$ENV_JSON" --memory-size 1024 --timeout 30 >/dev/null
+          else
+            aws lambda create-function --function-name "$FUNCTION_NAME" --package-type Image \
+              --code ImageUri="$IMAGE_URI" --role "$ROLE" --architectures x86_64 \
+              --memory-size 1024 --timeout 30 --environment "$ENV_JSON" >/dev/null
+          fi
+          aws lambda wait function-updated-v2 --function-name "$FUNCTION_NAME" || \
+            aws lambda wait function-active-v2 --function-name "$FUNCTION_NAME"
+
+          CORS='{"AllowOrigins":["https://dashboard.bogdewic.com","https://www.bogdewic.com"],"AllowMethods":["GET","POST"],"AllowHeaders":["content-type"],"MaxAge":3600}'
+          if ! aws lambda get-function-url-config --function-name "$FUNCTION_NAME" >/dev/null 2>&1; then
+            aws lambda create-function-url-config --function-name "$FUNCTION_NAME" --auth-type NONE --cors "$CORS" >/dev/null
+            # Since Oct 2025 a public function URL needs both permissions; the second is limited to URL calls only.
+            aws lambda add-permission --function-name "$FUNCTION_NAME" --statement-id PublicUrl \
+              --action lambda:InvokeFunctionUrl --principal '*' --function-url-auth-type NONE >/dev/null
+            aws lambda add-permission --function-name "$FUNCTION_NAME" --statement-id PublicUrlInvoke \
+              --action lambda:InvokeFunction --principal '*' --invoked-via-function-url >/dev/null
+          else
+            aws lambda update-function-url-config --function-name "$FUNCTION_NAME" --cors "$CORS" >/dev/null
+          fi
+
+          URL=$(aws lambda get-function-url-config --function-name "$FUNCTION_NAME" --query FunctionUrl --output text)
+          echo "### Live: $URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "FUNCTION_URL=$URL" >> "$GITHUB_ENV"
+
+      - name: Smoke test
+        if: steps.aws.outputs.ready == 'true'
+        run: |
+          for i in 1 2 3 4 5; do
+            if curl -fsS "${FUNCTION_URL}health" | tee /dev/stderr | grep -q '"database":true'; then exit 0; fi
+            sleep 5
+          done
+          exit 1
