@@ -46,13 +46,15 @@ class OpenAICompatibleLLM:
         body = {
             "model": self._model,
             "temperature": 0,
-            "max_tokens": 900,
+            "max_tokens": 2000,
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
         }
+        if "gpt-oss" in self._model:
+            body["reasoning_effort"] = "low"  # keep latency and token use low; tasks are simple
         try:
             r = self._client.post("/chat/completions", json=body)
         except httpx.HTTPError as e:

@@ -6,7 +6,7 @@
 **Consequences:** Numbers are exact and auditable, because the SQL and rows are shown to the user. Free-text questions
 about narratives are out of scope.
 
-## ADR-2: Free LLM (Groq, Llama 3.3 70B) behind a provider adapter
+## ADR-2: Free LLM (Groq, gpt-oss-120b) behind a provider adapter
 **Context:** The project must run at $0.
 **Decision:** Use the Groq free tier through its OpenAI-compatible API. Gemini's free tier is configured as an
 alternative, and a deterministic fake is used for tests.

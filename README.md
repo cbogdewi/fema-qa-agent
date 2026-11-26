@@ -7,7 +7,7 @@ Ask plain-English questions about U.S. disaster declarations, such as *"How many
 Florida had since 2010?"*. The agent writes a SQL query, runs it on a fresh copy of FEMA's public data, and
 answers **only from the rows it got back**. The SQL and the data behind each answer are shown with it.
 
-**Stack:** FastAPI · DuckDB · Llama 3.3 70B on Groq (free tier) · Docker · AWS Lambda (container image + function URL) ·
+**Stack:** FastAPI · DuckDB · gpt-oss-120b on Groq (free tier) · Docker · AWS Lambda (container image + function URL) ·
 GitHub Actions with OIDC · golden-set eval suite as a deploy gate. **Running cost: $0** at demo traffic.
 
 ## How it works
