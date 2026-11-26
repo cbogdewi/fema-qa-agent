@@ -2,7 +2,7 @@
 # Run once in AWS CloudShell (the >_ icon in the AWS console):
 #   curl -fsSL https://raw.githubusercontent.com/cbogdewi/fema-qa-agent/main/infra/bootstrap.sh | bash
 set -euo pipefail
-REGION="${AWS_REGION:-us-east-1}"
+REGION="us-east-2"   # must match AWS_REGION in .github/workflows/deploy.yml
 STACK="fema-qa-agent-bootstrap"
 TEMPLATE_URL="https://raw.githubusercontent.com/cbogdewi/fema-qa-agent/main/infra/bootstrap.yaml"
 

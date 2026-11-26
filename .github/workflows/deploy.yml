@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: us-east-2
   FUNCTION_NAME: fema-qa-agent
   EVAL_MIN_PASS_RATE: "0.8"
 
