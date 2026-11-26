@@ -49,11 +49,16 @@ jobs:
         env:
           LLM_PROVIDER: groq
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: ${{ vars.GROQ_MODEL || 'llama-3.3-70b-versatile' }}
         run: |
           if [ -z "$GROQ_API_KEY" ]; then
             echo "::warning::GROQ_API_KEY secret not set - skipping evals"
             exit 0
           fi
+          # Pre-flight: confirm the key works and the model is available (prints model IDs only).
+          curl -fsS https://api.groq.com/openai/v1/models -H "Authorization: Bearer $GROQ_API_KEY" \
+            | python -c "import json,sys; ids=sorted(m['id'] for m in json.load(sys.stdin)['data']); print('Groq models:', ', '.join(ids))" \
+            || { echo "::error::Groq rejected the API key - re-check the GROQ_API_KEY secret"; exit 1; }
           python -m evals.run_evals --min-pass-rate "$EVAL_MIN_PASS_RATE"
 
       - name: Publish eval report
@@ -116,11 +121,12 @@ jobs:
         env:
           IMAGE_URI: ${{ steps.image.outputs.uri }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: ${{ vars.GROQ_MODEL || 'llama-3.3-70b-versatile' }}
         run: |
           set -euo pipefail
           ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
           ROLE="arn:aws:iam::${ACCOUNT}:role/${FUNCTION_NAME}-lambda"
-          ENV_JSON=$(python -c 'import json,os; print(json.dumps({"Variables": {"LLM_PROVIDER": "groq", "GROQ_API_KEY": os.environ["GROQ_API_KEY"]}}))')
+          ENV_JSON=$(python -c 'import json,os; print(json.dumps({"Variables": {"LLM_PROVIDER": "groq", "GROQ_MODEL": os.environ["GROQ_MODEL"], "GROQ_API_KEY": os.environ["GROQ_API_KEY"]}}))')
 
           if aws lambda get-function --function-name "$FUNCTION_NAME" >/dev/null 2>&1; then
             aws lambda update-function-code --function-name "$FUNCTION_NAME" --image-uri "$IMAGE_URI" >/dev/null

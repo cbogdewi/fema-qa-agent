@@ -60,7 +60,11 @@ class OpenAICompatibleLLM:
         if r.status_code == 429:
             raise RateLimitedError("LLM provider free-tier limit reached; try again shortly")
         if r.status_code >= 400:
-            raise LLMError(f"LLM provider returned HTTP {r.status_code}")
+            try:
+                detail = r.json().get("error", {}).get("message", "")[:200]
+            except ValueError:
+                detail = r.text[:200]
+            raise LLMError(f"LLM provider returned HTTP {r.status_code}: {detail}")
         try:
             content = r.json()["choices"][0]["message"]["content"]
             return json.loads(content)
