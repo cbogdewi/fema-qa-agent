@@ -11,6 +11,14 @@ Parameters:
   GitHubRepo:
     Type: String
     Default: fema-qa-agent
+  GitHubOwnerId:
+    Type: String
+    Default: "4121772"
+    Description: Numeric GitHub owner ID (GitHub now includes it in the OIDC subject claim).
+  GitHubRepoId:
+    Type: String
+    Default: "1472476036"
+    Description: Numeric GitHub repository ID.
   FunctionName:
     Type: String
     Default: fema-qa-agent
@@ -77,9 +85,11 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-              StringLike:
-                # Only the main branch of this one repository can deploy.
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOwner}/${GitHubRepo}:ref:refs/heads/main"
+                # Only the main branch of this one repository can deploy. GitHub's subject claim now
+                # embeds immutable owner/repo IDs; the legacy name-only form is accepted too.
+                token.actions.githubusercontent.com:sub:
+                  - !Sub "repo:${GitHubOwner}@${GitHubOwnerId}/${GitHubRepo}@${GitHubRepoId}:ref:refs/heads/main"
+                  - !Sub "repo:${GitHubOwner}/${GitHubRepo}:ref:refs/heads/main"
       Policies:
         - PolicyName: deploy
           PolicyDocument:
