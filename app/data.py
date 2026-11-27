@@ -22,11 +22,13 @@ Table declarations  -- OpenFEMA "Disaster Declarations Summaries" (v2).
     declaration_date DATE
     fy_declared INTEGER          -- federal fiscal year
     incident_type TEXT           -- e.g. 'Hurricane', 'Severe Storm', 'Flood', 'Fire', 'Snowstorm',
-                                 --      'Tornado', 'Biological', 'Severe Ice Storm', 'Earthquake'
-    declaration_title TEXT       -- e.g. 'HURRICANE IAN'
+                                 --      'Tornado', 'Biological' (COVID-19), 'Severe Ice Storm', 'Earthquake'
+    declaration_title TEXT       -- upper case, e.g. 'HURRICANE IAN', 'COVID-19 PANDEMIC'
     incident_begin_date DATE
     incident_end_date DATE
-    designated_area TEXT         -- county/parish/tribal area, e.g. 'Fairfax (County)'
+    designated_area TEXT         -- area name with its kind in parentheses, e.g. 'Fairfax (County)',
+                                 --   'Fairfax (Independent City)', 'Harris (County)', 'Orleans (Parish)', 'Statewide'.
+                                 --   For "X County" filter designated_area = 'X (County)' AND state = '..'.
     fips_state_code TEXT
     fips_county_code TEXT
     region INTEGER               -- FEMA region 1-10
@@ -34,6 +36,13 @@ Table declarations  -- OpenFEMA "Disaster Declarations Summaries" (v2).
     ia_program_declared BOOLEAN
     pa_program_declared BOOLEAN  -- Public Assistance
     hm_program_declared BOOLEAN  -- Hazard Mitigation
+
+Notes on named events (e.g. Hurricane Katrina, Sandy, Harvey):
+  - One event usually has SEVERAL disaster numbers: a major disaster (DR) per hit state, plus emergency (EM)
+    declarations, including states that hosted evacuees. Match with declaration_title ILIKE '%KATRINA%' and do
+    NOT add state or declaration_type filters unless the question asks for them.
+  - For assistance totals of a named storm in one state, use that state's DR declaration's disaster_number
+    and read the row from disaster_summaries.
 
 Table disaster_summaries  -- OpenFEMA "FEMA Web Disaster Summaries": one row per disaster, dollar totals.
   Join with declarations ON disaster_number.
