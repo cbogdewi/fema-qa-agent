@@ -67,3 +67,10 @@ def test_rate_limiter():
     assert rl.check("a") and rl.check("a")
     assert not rl.check("a")
     assert rl.check("b")
+
+
+def test_widget_assets_served(client):
+    for path in ("/static/ask-fema.js", "/static/ask-fema.css"):
+        r = client.get(path)
+        assert r.status_code == 200
+        assert "max-age" in r.headers["cache-control"]

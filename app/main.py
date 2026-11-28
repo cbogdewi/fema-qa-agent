@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from mangum import Mangum
 from pydantic import BaseModel, Field
 
@@ -38,6 +39,19 @@ app.add_middleware(
     allow_headers=["Content-Type"],
     max_age=3600,
 )
+
+
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+@app.middleware("http")
+async def cache_static(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        # Embedded by dashboard.bogdewic.com; short cache so updates show up within the hour.
+        response.headers["Cache-Control"] = "public, max-age=3600"
+        response.headers["Access-Control-Allow-Origin"] = "*"
+    return response
 
 
 @lru_cache
